@@ -41,10 +41,16 @@ __kernel void hough_transform(__global uchar4 *input_image,
                            (int2)(-1, 0),  (int2)(0, 0),  (int2)(1, 0),
                            (int2)(-1, 1),  (int2)(0, 1),  (int2)(1, 1)};
 
+  // Initialize variables before loop
+  int2 neighbor_coord = (int2)(0);
+  uint neighbor_idx = 0;
+  float4 neighbor_pixel = (float4)(0);
+  float neighbor_gray = 0.0f;
+
   for (uint i = 0; i < 9; i++) {
 
     // Read  (x, y) coordinates of neighbor pixel
-    int2 neighbor_coord = coord + offsets[i];
+    neighbor_coord = coord + offsets[i];
 
     // Check bounds (if exceeded then go to next iteration)
     if (neighbor_coord.x < 0 || neighbor_coord.x > image_size.x ||
@@ -52,12 +58,12 @@ __kernel void hough_transform(__global uchar4 *input_image,
       continue;
 
     // Read neighbor pixel global coords
-    uint neighbor_idx = neighbor_coord.x + neighbor_coord.y * image_size.x;
+    neighbor_idx = neighbor_coord.x + neighbor_coord.y * image_size.x;
 
     // Read neighbor pixel and convert to gray scale
-    float4 neighbor_pixel = convert_float4(input_image[neighbor_idx]);
+    neighbor_pixel = convert_float4(input_image[neighbor_idx]);
     // In separate kernels shall be deleted:
-    float neighbor_gray = dot(neighbor_pixel, rgb_ntsc_proportion);
+    neighbor_gray = dot(neighbor_pixel, rgb_ntsc_proportion);
 
     // Accumulate gradients
     gradient += neighbor_gray * (float2)(sobel_x[i], sobel_y[i]);
@@ -68,6 +74,10 @@ __kernel void hough_transform(__global uchar4 *input_image,
 
   // Assign gradient magnitude to pixel
   pixel = (float4)((float3)(gradient_magnitude), 1.0f);
+
+  // Binarization of image
+  float binarization_edge = 120.0f;
+  pixel = step(binarization_edge, pixel) * 255.0f;
 
   // Write pixel to output buffer
   output_image[pixel_idx] = convert_uchar4(pixel);
