@@ -1,0 +1,5 @@
+https://web.archive.org/web/20120426054222/http://www.cvmt.dk/education/teaching/e07/MED3/IP/hough_lines.pdf
+https://urresearch.rochester.edu/institutionalPublicationPublicView.action?institutionalItemId=13368&versionNumber=1
+https://stackoverflow.com/questions/33837559/hough-transform-and-opencl
+https://www.youtube.com/watch?v=XRBc_xkZREg
+https://registry.khronos.org/OpenCL/specs/3.0-unified/html/OpenCL_C.html
