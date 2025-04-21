@@ -33,3 +33,6 @@
 
 # Images
 *.bmp
+
+/cmake-build-debug/
+.idea/
