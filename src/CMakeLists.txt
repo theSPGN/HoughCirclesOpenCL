@@ -16,7 +16,7 @@ foreach(kernel IN LISTS OPENCL_KERNELS)
     cmake_path(GET kernel FILENAME FileName)
     add_custom_command(
             TARGET lib_hough_transform PRE_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${kernel} ${CMAKE_BINARY_DIR}/cl/${FileName}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${kernel} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/cl/${FileName}
             COMMENT "Copying kernel: ${kernel}")
 endforeach()
 

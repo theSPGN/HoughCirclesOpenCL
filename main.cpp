@@ -12,11 +12,10 @@
 
 int main(int argc, char **argv)
 {
-
     cv::namedWindow("Circles", cv::WINDOW_AUTOSIZE);
-    const cv::Mat img = cv::Mat::zeros(cv::Size(640, 480), CV_8UC3);
+    const cv::Mat image = cv::imread("data/circuit.bmp", cv::IMREAD_GRAYSCALE);
 
-    cv::imshow("Circles", img);
+    cv::imshow("Circles", image);
     cv::waitKey();
 
     cl_uint num_platforms;
