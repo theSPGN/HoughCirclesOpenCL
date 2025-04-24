@@ -13,7 +13,7 @@
 int main(int argc, char **argv)
 {
     cv::namedWindow("Circles", cv::WINDOW_AUTOSIZE);
-    const cv::Mat image = cv::imread("data/circuit.bmp", cv::IMREAD_GRAYSCALE);
+    const cv::Mat image = cv::imread("img/circuit.bmp", cv::IMREAD_GRAYSCALE);
 
     cv::imshow("Circles", image);
     cv::waitKey();
