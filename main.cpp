@@ -3,12 +3,22 @@
 #include <string>
 #include <filesystem>
 #include <CL/cl.h>
+#include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
+
 
 #include "KernelUtils.hpp"
 
 
 int main(int argc, char **argv)
 {
+
+    cv::namedWindow("Circles", cv::WINDOW_AUTOSIZE);
+    const cv::Mat img = cv::Mat::zeros(cv::Size(640, 480), CV_8UC3);
+
+    cv::imshow("Circles", img);
+    cv::waitKey();
+
     cl_uint num_platforms;
     cl_int status = clGetPlatformIDs(0, nullptr, &num_platforms);
 
