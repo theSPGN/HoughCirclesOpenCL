@@ -4,17 +4,13 @@ int main()
 {
     // Definicja wymiaru jądra
     size_t threshhold = 1;
-    
-    size_t r = 5;
-    
-    if (r < threshhold) r = 0;
-    else r -= threshhold;
-    
     size_t R = 5;
     R += threshhold;
     
+    size_t r = R;
+    if (r < threshhold + 2) r = 0;
+    else r -= threshhold + 2;
     size_t dim = 2 * R + 1;
-    
     
     // Definicja buffora 2 wymiarowego
     bool **buffer = (bool **)calloc(dim, sizeof(bool *));
