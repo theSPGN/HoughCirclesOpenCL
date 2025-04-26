@@ -1,3 +1,4 @@
+clear all
 % Read image and show it on figure
 A = imread("coins.png");
 imshow(A)
@@ -104,6 +105,7 @@ used = false(size(sortedCenters, 1), 1); % Flaga użycia centrum
 
 for i = 1:size(sortedCenters, 1)
     if ~used(i)
+        distances = sqrt(sum((sortedCenters - sortedCenters(i, :)).^2, 2));
         filteredCenters = [filteredCenters; sortedCenters(i, :)];
         groupIdx = find(distances < distanceThreshold);
         averageRadius = mean(sortedRadii(groupIdx));
@@ -113,7 +115,7 @@ for i = 1:size(sortedCenters, 1)
         filteredHs = [filteredHs; sortedHs(i)];
 
 
-        distances = sqrt(sum((sortedCenters - sortedCenters(i, :)).^2, 2));
+
         used(distances < distanceThreshold) = true;
     end
 end
