@@ -1,106 +1,152 @@
+#define CL_TARGET_OPENCL_VERSION 220
+#define __CL_ENABLE_EXCEPTIONS
+
 #include <iostream>
 #include <vector>
 #include <string>
 #include <filesystem>
-#include <CL/cl.h>
+#include <CL/cl.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
 
 #include "KernelUtils.hpp"
 
+[[nodiscard]]
+cl::Device GetDevice(bool useGPU)
+{
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
+
+    if (platforms.empty())
+    {
+        std::cerr << "No OpenCL platforms found.\n";
+        throw std::runtime_error("No OpenCL platforms found.");
+    }
+
+    std::cout << "Found " << platforms.size() << " platform(s).\n";
+
+    cl::Platform platform = platforms.front();
+    std::cout << "Using platform: " << platform.getInfo<CL_PLATFORM_NAME>() << "\n";
+
+    // Find devices
+    std::vector<cl::Device> devices;
+    cl_device_type deviceType = useGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU;
+    platform.getDevices(deviceType, &devices);
+
+    if (devices.empty())
+    {
+        std::cerr << "No devices of type " << (useGPU ? "GPU" : "CPU") << " found on this platform.\n";
+        throw std::runtime_error("No OpenCL device found.");
+    }
+    std::cout << "Found " << devices.size() << " device(s) of type " << (useGPU ? "GPU" : "CPU") << ".\n";
+
+    // 4. Select the first device
+    cl::Device device = devices.front();
+    std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << "\n";
+
+    return device;
+};
+
+cv::Mat LoadInputImage(const std::string &image_path)
+{
+    const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR_BGR);
+    if (inputImage.empty())
+    {
+        throw std::runtime_error("Failed to load input.png");
+    }
+    return inputImage;
+}
 
 int main(int argc, char **argv)
 {
-    cv::namedWindow("Circles", cv::WINDOW_AUTOSIZE);
-    const cv::Mat image = cv::imread("img/circuit.bmp", cv::IMREAD_GRAYSCALE);
+    static const std::string image_path = "img/img.png";
+    const bool useGPU = true;
 
-    cv::imshow("Circles", image);
-    cv::waitKey();
+    const auto device = GetDevice(useGPU);
 
-    cl_uint num_platforms;
-    cl_int status = clGetPlatformIDs(0, nullptr, &num_platforms);
+    const cl::Context context(device);
+    const cl::CommandQueue queue(context, device);
 
-    if (status != CL_SUCCESS)
-    {
-        std::cerr << "Error: Failed to get the number of platforms" << std::endl;
-        return EXIT_FAILURE;
+    const std::string kernelSource = ReadKernelFile("cl/Kernel.cl");
+
+    const cl::Program program(context, kernelSource);
+    try {
+        program.build({device});
+    } catch (cl::Error& buildErr) {
+        std::cerr << "Error building: " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
+        throw;
     }
 
-    if (num_platforms == 0)
-    {
-        std::cerr << "Error: No platforms found" << std::endl;
-        return EXIT_FAILURE;
-    }
+    cl::Kernel kernel(program, "gray_scale");
 
-    cl_platform_id platform = [&]() {
-        std::vector<cl_platform_id> platforms(num_platforms);
-        status = clGetPlatformIDs(num_platforms, platforms.data(), nullptr);
-        return platforms[0];
-    }();
+    // Load input image
+    cv::Mat inputBGR = LoadInputImage(image_path);
+    cv::Mat inputRGBA;
+    cv::cvtColor(inputBGR, inputRGBA, cv::COLOR_BGR2RGBA);
 
-    cl_uint num_devices = 0;
-    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &num_devices);
-    std::vector<cl_device_id> devices(num_devices);
+    cv::namedWindow("input", cv::WINDOW_NORMAL);
+    cv::imshow("input", inputBGR);
 
-    if (num_devices == 0)
-    {
-        std::cout << "No GPU device available.\n";
-        std::cout << "Choose CPU as default device." << std::endl;
+    // Create input/output of opencl images
+    cl::ImageFormat format(CL_RGBA, CL_UNORM_INT8);
+    cl::Image2D inputImageCL(
+        context,
+        CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        format,
+        inputRGBA.cols,
+        inputRGBA.rows,
+        0,
+        inputRGBA.data
+    );
 
-        status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, 0, nullptr, &num_devices);
-        status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, num_devices, devices.data(), nullptr);
-    }
-    else
-    {
-        status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, num_devices, devices.data(), nullptr);
-    }
+    cl::Image2D outputImageCL(
+        context,
+        CL_MEM_WRITE_ONLY,
+        format,
+        inputRGBA.cols,
+        inputRGBA.rows
+    );
 
-    cl_context context = clCreateContext(nullptr, 1, devices.data(), nullptr, nullptr, &status);
+    // Set kernel arguments
+    kernel.setArg(0, inputImageCL);
+    kernel.setArg(1, outputImageCL);
 
-    cl_command_queue command_queue = clCreateCommandQueue(context, devices[0], 0, &status);
+    // Enqueue kernel execution
+    cl::NDRange globalSize(inputRGBA.cols, inputRGBA.rows);
+    queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, cl::NullRange);
 
+    // Create output image
+    cv::Mat outputRGBA(inputRGBA.rows, inputRGBA.cols, CV_8UC4);
 
+    cl::size_t<3> origin;
+    origin[0] = 0;
+    origin[1] = 0;
+    origin[2] = 0;
 
-    const std::filesystem::path kernel_path = "cl/Kernel.cl";
-    const std::string kernel_code = ReadKernelFile(kernel_path);
-    const char *c_kernel_code = kernel_code.c_str();
-    std::size_t kernel_size[] = {kernel_code.size()};
+    cl::size_t<3> region{};
+    region[0] = static_cast<size_t>(inputRGBA.cols);
+    region[1] = static_cast<size_t>(inputRGBA.rows);
+    region[2] = 1;
 
-    cl_program program = clCreateProgramWithSource(context, 1, &c_kernel_code, kernel_size, &status);
+    // Read back the result
+    queue.enqueueReadImage(
+        outputImageCL,
+        CL_TRUE,
+        origin,
+        region,
+        0,
+        0,
+        outputRGBA.data
+    );
 
-    clBuildProgram(program, 1, devices.data(), nullptr, nullptr, nullptr);
+    // Show result image
+    cv::Mat outputBGR;
+    cv::cvtColor(outputRGBA, outputBGR, cv::COLOR_RGBA2BGR);
 
+    cv::namedWindow("OutputImage", cv::WINDOW_NORMAL);
+    cv::imshow("OutputImage", outputBGR);
+    cv::waitKey(0);
 
-
-	std::string input = "GdkknVnqkc";
-    std::vector<char> output(input.size() + 1, '\0');
-
-    cl_mem input_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, input.size() * sizeof(char), input.data(), &status);
-    cl_mem output_mem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, input.size() * sizeof(char), nullptr, &status);
-
-    cl_kernel kernel = clCreateKernel(program, "helloworld", nullptr);
-
-    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input_mem);
-    status = clSetKernelArg(kernel, 1, sizeof(cl_mem), &output_mem);
-
-    std::size_t global_work_size[] = {input.size()};
-    status = clEnqueueNDRangeKernel(command_queue, kernel, 1, nullptr, global_work_size, nullptr, 0, nullptr, nullptr);
-
-
-    status = clEnqueueReadBuffer(command_queue, output_mem, CL_TRUE, 0, input.size(), output.data(), 0, nullptr, nullptr);
-
-
-    const std::string output_str(output.begin(), output.end());
-    std::cout << output_str << std::endl;
-
-    clReleaseKernel(kernel);
-    clReleaseProgram(program);
-    clReleaseMemObject(input_mem);
-    clReleaseMemObject(output_mem);
-    clReleaseCommandQueue(command_queue);
-    clReleaseContext(context);
-
-
-    return EXIT_SUCCESS;
+    return 0;
 }
