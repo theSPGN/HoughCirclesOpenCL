@@ -6,7 +6,7 @@ set(SOURCE_FILES
 file(GLOB OPENCL_KERNELS *.cl)
 
 add_library(lib_hough_transform STATIC ${SOURCE_FILES})
-target_link_libraries(lib_hough_transform PUBLIC  ${OPENCL_LIBRARIES} SDKUtil)
+target_link_libraries(lib_hough_transform PUBLIC  ${OPENCL_LIBRARIES})
 target_include_directories(lib_hough_transform PUBLIC ${OPENCL_INCLUDE_DIRS} $ENV{AMDAPPSDKROOT}/include/ .)
 set_target_properties(lib_hough_transform PROPERTIES LINKER_LANGUAGE CXX)
 

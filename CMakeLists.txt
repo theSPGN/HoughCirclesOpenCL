@@ -13,14 +13,12 @@ include(cmake/GetOpenCL.cmake)
 include(cmake/GetDependency.cmake)
 
 add_subdirectory(data)
-add_subdirectory(libs)
 add_subdirectory(src)
 add_subdirectory(tests)
 
 add_executable(Hough_transform main.cpp)
 target_link_libraries(Hough_transform PUBLIC
         lib_hough_transform
-        SDKUtil
         ${OpenCV_LIBS}
         DataFilesCopy
 )
