@@ -13,10 +13,12 @@ set_target_properties(lib_hough_transform PROPERTIES LINKER_LANGUAGE CXX)
 
 # Copy OpenCL kernels to build folder
 foreach(kernel IN LISTS OPENCL_KERNELS)
+    message(kernel STATUS)
     cmake_path(GET kernel FILENAME FileName)
-    add_custom_command(
-            TARGET lib_hough_transform PRE_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${kernel} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/cl/${FileName}
-            COMMENT "Copying kernel: ${kernel}")
+    add_custom_target("copy_kernel_${FileName}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${kernel}
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/cl/${FileName})
+    add_dependencies(lib_hough_transform "copy_kernel_${FileName}")
 endforeach()
 
