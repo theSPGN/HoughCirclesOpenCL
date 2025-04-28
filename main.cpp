@@ -60,7 +60,7 @@ cv::Mat LoadInputImage(const std::string &image_path)
 
 int main(int argc, char **argv)
 {
-    static const std::string image_path = "img/img.png";
+    static const std::string image_path = "img/coins.png";
     const bool useGPU = true;
 
     const auto device = GetDevice(useGPU);
@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     const cl::Context context(device);
     const cl::CommandQueue queue(context, device);
 
-    const std::string kernelSource = ReadKernelFile("cl/Kernel.cl");
+    const std::string kernelSource = ReadKernelFile("cl/HoughTransformCircle_Kernels.cl");
 
     const cl::Program program(context, kernelSource);
     try {
@@ -78,7 +78,7 @@ int main(int argc, char **argv)
         throw;
     }
 
-    cl::Kernel kernel(program, "gray_scale");
+    cl::Kernel kernel(program, "hough_transform");
 
     // Load input image
     cv::Mat inputBGR = LoadInputImage(image_path);
@@ -143,6 +143,7 @@ int main(int argc, char **argv)
     // Show result image
     cv::Mat outputBGR;
     cv::cvtColor(outputRGBA, outputBGR, cv::COLOR_RGBA2BGR);
+    cv::normalize(outputBGR, outputBGR, 0, 255, cv::NORM_MINMAX);
 
     cv::namedWindow("OutputImage", cv::WINDOW_NORMAL);
     cv::imshow("OutputImage", outputBGR);

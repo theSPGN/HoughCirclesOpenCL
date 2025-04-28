@@ -1,8 +1,10 @@
 __constant float4 rgb_ntsc_proportion = {0.2989f, 0.5870f, 0.1140f, 0.0f};
 
-__kernel void hough_transform(__global uchar4 *input_image,
-                              __global uchar4 *output_image) {
+__constant sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
+__kernel void hough_transform(read_only image2d_t input_image,
+                              write_only image2d_t output_image)
+{
   // ***
   // Read input picture and changing it to gray scale
   // ***
@@ -13,15 +15,12 @@ __kernel void hough_transform(__global uchar4 *input_image,
   // Read size of image (width, height)
   uint2 image_size = (uint2)(get_global_size(0), get_global_size(1));
 
-  // Change relative coordinates of buffer to global index of
-  // Pixel in input image
-  uint pixel_idx = coord.x + coord.y * image_size.x;
-
   // Read pixel and converting itself to float4 vector
-  float4 pixel = convert_float4(input_image[pixel_idx]);
+  float4 pixel = convert_float4(read_imageui(input_image, sampler, coord));
 
   // Changing picture to gray scale
   float4 pixel_gray_out = dot(pixel, rgb_ntsc_proportion);
+
 
   // ***
   // Performing Sobel operation
@@ -43,7 +42,6 @@ __kernel void hough_transform(__global uchar4 *input_image,
 
   // Initialize variables before loop
   int2 neighbor_coord = (int2)(0);
-  uint neighbor_idx = 0;
   float4 neighbor_pixel = (float4)(0);
   float neighbor_gray = 0.0f;
 
@@ -57,11 +55,9 @@ __kernel void hough_transform(__global uchar4 *input_image,
         neighbor_coord.y < 0 || neighbor_coord.y > image_size.y)
       continue;
 
-    // Read neighbor pixel global coords
-    neighbor_idx = neighbor_coord.x + neighbor_coord.y * image_size.x;
-
     // Read neighbor pixel and convert to gray scale
-    neighbor_pixel = convert_float4(input_image[neighbor_idx]);
+    neighbor_pixel = convert_float4(read_imageui(input_image, sampler, neighbor_coord));
+
     // In separate kernels shall be deleted:
     neighbor_gray = dot(neighbor_pixel, rgb_ntsc_proportion);
 
@@ -76,9 +72,9 @@ __kernel void hough_transform(__global uchar4 *input_image,
   pixel = (float4)((float3)(gradient_magnitude), 1.0f);
 
   // Binarization of image
-  float binarization_edge = 120.0f;
-  pixel = step(binarization_edge, pixel) * 255.0f;
+  // float binarization_edge = 120.0f;
+  // pixel = step(binarization_edge, pixel) * 255.0f;
 
   // Write pixel to output buffer
-  output_image[pixel_idx] = convert_uchar4(pixel);
+  write_imageui(output_image, coord, convert_uint4(pixel * 255));
 }
