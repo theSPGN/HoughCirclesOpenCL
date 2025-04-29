@@ -1,0 +1,6 @@
+[OpenCL]
+use_gpu = true
+
+[Hough_transform]
+image =  "data/coins.png"
+radius = 5

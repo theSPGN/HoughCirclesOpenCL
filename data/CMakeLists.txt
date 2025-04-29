@@ -9,7 +9,7 @@ foreach(data IN LISTS DATA_FILES)
     add_custom_target("copy_data_${FileName}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${data}
-            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/img/${FileName}
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/data/${FileName}
     )
     add_dependencies(DataFilesCopy "copy_data_${FileName}")
 endforeach()

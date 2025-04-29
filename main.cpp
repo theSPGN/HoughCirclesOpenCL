@@ -9,8 +9,8 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-
 #include "KernelUtils.hpp"
+
 
 [[nodiscard]]
 cl::Device GetDevice(bool useGPU)
@@ -60,10 +60,25 @@ cv::Mat LoadInputImage(const std::string &image_path)
 
 int main(int argc, char **argv)
 {
-    static const std::string image_path = "img/coins.png";
-    const bool useGPU = true;
+    toml::table tbl;
+    try
+    {
+        tbl = toml::parse_file("config.toml");
+    }
+    catch (const toml::parse_error &err)
+    {
+        std::cerr << "Error parsing file '" << *err.source().path
+                  << "':\n" << err.description() << "\n (" << err.source().begin << ")\n";
+        return 1;
+    }
 
-    const auto device = GetDevice(useGPU);
+    /// Get parameters
+    const auto use_gpu = ConfigGetValue<bool>(tbl, "OpenCL.use_gpu");
+    const auto image_path = ConfigGetValue<std::string>(tbl, "Hough_transform.image");
+    const auto hough_radius = ConfigGetValue<int>(tbl, "Hough_transform.radius");
+
+
+    const auto device = GetDevice(use_gpu);
 
     const cl::Context context(device);
     const cl::CommandQueue queue(context, device);
