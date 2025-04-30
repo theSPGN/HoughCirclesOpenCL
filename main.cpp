@@ -75,7 +75,8 @@ int main(int argc, char **argv)
     /// Get parameters
     const auto use_gpu = ConfigGetValue<bool>(tbl, "OpenCL.use_gpu");
     const auto image_path = ConfigGetValue<std::string>(tbl, "Hough_transform.image");
-    const auto hough_radius = ConfigGetValue<int>(tbl, "Hough_transform.radius");
+    const auto hough_min_radius = ConfigGetValue<int>(tbl, "Hough_transform.min_radius");
+    const auto hough_max_radius = ConfigGetValue<int>(tbl, "Hough_transform.max_radius");
 
 
     const auto device = GetDevice(use_gpu);
@@ -83,7 +84,7 @@ int main(int argc, char **argv)
     const cl::Context context(device);
     const cl::CommandQueue queue(context, device);
 
-    const std::string kernelSource = ReadKernelFile("cl/HoughTransformCircle_Kernels.cl");
+    const std::string kernelSource = ReadKernelFile("cl/FindCircle.cl");
 
     const cl::Program program(context, kernelSource);
     try {
@@ -93,46 +94,52 @@ int main(int argc, char **argv)
         throw;
     }
 
-    cl::Kernel kernel(program, "hough_transform");
+    cl::Kernel kernel(program, "FindCircle");
 
     // Load input image
-    cv::Mat inputBGR = LoadInputImage(image_path);
-    cv::Mat inputRGBA;
-    cv::cvtColor(inputBGR, inputRGBA, cv::COLOR_BGR2RGBA);
+    cv::Mat input_img = LoadInputImage(image_path);
 
-    cv::namedWindow("input", cv::WINDOW_NORMAL);
-    cv::imshow("input", inputBGR);
+    cv::Mat input_canny;
+    cv::Canny(input_img, input_canny, 100, 200);
+    cv::namedWindow("Canny", cv::WINDOW_NORMAL);
+    cv::imshow("Canny", input_canny);
+
+    cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
 
     // Create input/output of opencl images
-    cl::ImageFormat format(CL_RGBA, CL_UNORM_INT8);
+    cl::ImageFormat format(CL_R, CL_UNSIGNED_INT8);
     cl::Image2D inputImageCL(
         context,
         CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         format,
-        inputRGBA.cols,
-        inputRGBA.rows,
+        input_canny.cols,
+        input_canny.rows,
         0,
-        inputRGBA.data
+        input_canny.data
     );
 
     cl::Image2D outputImageCL(
         context,
         CL_MEM_WRITE_ONLY,
         format,
-        inputRGBA.cols,
-        inputRGBA.rows
+        input_canny.cols,
+        input_canny.rows
     );
 
     // Set kernel arguments
     kernel.setArg(0, inputImageCL);
-    kernel.setArg(1, outputImageCL);
+    kernel.setArg(1, hough_min_radius); // start from the smallest allowed radius
+    kernel.setArg(2, hough_max_radius); // specify size of local memory
+    kernel.setArg(3, outputImageCL);
 
     // Enqueue kernel execution
-    cl::NDRange globalSize(inputRGBA.cols, inputRGBA.rows);
+    cl::NDRange globalSize(input_canny.cols, input_canny.rows);
+    // cl::NDRange localSize(1, 1, n_possible_radius);
+
     queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, cl::NullRange);
 
     // Create output image
-    cv::Mat outputRGBA(inputRGBA.rows, inputRGBA.cols, CV_8UC4);
+    cv::Mat output_kernel(input_canny.rows, input_canny.cols, CV_8UC1);
 
     cl::size_t<3> origin;
     origin[0] = 0;
@@ -140,8 +147,8 @@ int main(int argc, char **argv)
     origin[2] = 0;
 
     cl::size_t<3> region{};
-    region[0] = static_cast<size_t>(inputRGBA.cols);
-    region[1] = static_cast<size_t>(inputRGBA.rows);
+    region[0] = static_cast<size_t>(input_canny.cols);
+    region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
     // Read back the result
@@ -152,16 +159,23 @@ int main(int argc, char **argv)
         region,
         0,
         0,
-        outputRGBA.data
+        output_kernel.data
     );
 
     // Show result image
     cv::Mat outputBGR;
-    cv::cvtColor(outputRGBA, outputBGR, cv::COLOR_RGBA2BGR);
-    cv::normalize(outputBGR, outputBGR, 0, 255, cv::NORM_MINMAX);
+    cv::Mat output_normalized;
+    cv::Mat output_color;
 
-    cv::namedWindow("OutputImage", cv::WINDOW_NORMAL);
-    cv::imshow("OutputImage", outputBGR);
+
+    cv::normalize(output_kernel, output_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::namedWindow("OutputNorm", cv::WINDOW_NORMAL);
+    cv::imshow("OutputNorm", output_normalized);
+
+    cv::applyColorMap(output_normalized, output_color, cv::COLORMAP_JET);
+
+    cv::namedWindow("OutputColor", cv::WINDOW_NORMAL);
+    cv::imshow("OutputColor", output_color);
     cv::waitKey(0);
 
     return 0;
