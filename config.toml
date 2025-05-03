@@ -1,4 +1,6 @@
 [OpenCL]
+platform_id = 0
+device_id = 0
 use_gpu = true
 
 [Hough_transform]

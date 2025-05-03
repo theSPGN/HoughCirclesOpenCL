@@ -1,15 +1,20 @@
 #ifndef KERNELUTILS_HPP
 #define KERNELUTILS_HPP
 
+#define __CL_ENABLE_EXCEPTIONS
+
 #include <filesystem>
 #include <string>
 #include <iostream>
+#include <CL/cl.hpp>
 #include <toml++/toml.hpp>
 
 
 [[nodiscard]]
 std::string ReadKernelFile(const std::filesystem::path &path);
 
+[[nodiscard]]
+cl::Device GetDevice(std::size_t platform_id, std::size_t device_id, bool use_gpu);
 
 template <typename T>
 [[nodiscard]]

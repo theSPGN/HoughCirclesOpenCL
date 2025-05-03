@@ -12,42 +12,6 @@
 #include "KernelUtils.hpp"
 
 
-[[nodiscard]]
-cl::Device GetDevice(bool useGPU)
-{
-    std::vector<cl::Platform> platforms;
-    cl::Platform::get(&platforms);
-
-    if (platforms.empty())
-    {
-        std::cerr << "No OpenCL platforms found.\n";
-        throw std::runtime_error("No OpenCL platforms found.");
-    }
-
-    std::cout << "Found " << platforms.size() << " platform(s).\n";
-
-    cl::Platform platform = platforms.front();
-    std::cout << "Using platform: " << platform.getInfo<CL_PLATFORM_NAME>() << "\n";
-
-    // Find devices
-    std::vector<cl::Device> devices;
-    cl_device_type deviceType = useGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU;
-    platform.getDevices(deviceType, &devices);
-
-    if (devices.empty())
-    {
-        std::cerr << "No devices of type " << (useGPU ? "GPU" : "CPU") << " found on this platform.\n";
-        throw std::runtime_error("No OpenCL device found.");
-    }
-    std::cout << "Found " << devices.size() << " device(s) of type " << (useGPU ? "GPU" : "CPU") << ".\n";
-
-    // 4. Select the first device
-    cl::Device device = devices.front();
-    std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << "\n";
-
-    return device;
-};
-
 cv::Mat LoadInputImage(const std::string &image_path)
 {
     const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR_BGR);
@@ -67,19 +31,22 @@ int main(int argc, char **argv)
     }
     catch (const toml::parse_error &err)
     {
-        std::cerr << "Error parsing file '" << *err.source().path
+        std::cout << "Error parsing file '" << *err.source().path
                   << "':\n" << err.description() << "\n (" << err.source().begin << ")\n";
         return 1;
     }
 
     /// Get parameters
     const auto use_gpu = ConfigGetValue<bool>(tbl, "OpenCL.use_gpu");
+    const auto platform_id = ConfigGetValue<size_t>(tbl, "OpenCL.platform_id");
+    const auto device_id = ConfigGetValue<size_t>(tbl, "OpenCL.device_id");
+
     const auto image_path = ConfigGetValue<std::string>(tbl, "Hough_transform.image");
     const auto hough_min_radius = ConfigGetValue<int>(tbl, "Hough_transform.min_radius");
     const auto hough_max_radius = ConfigGetValue<int>(tbl, "Hough_transform.max_radius");
 
 
-    const auto device = GetDevice(use_gpu);
+    const auto device = GetDevice(platform_id, device_id, use_gpu);
 
     const cl::Context context(device);
     const cl::CommandQueue queue(context, device);
@@ -90,7 +57,7 @@ int main(int argc, char **argv)
     try {
         program.build({device});
     } catch (cl::Error& buildErr) {
-        std::cerr << "Error building: " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
+        std::cout << "Error building: " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
         throw;
     }
 
@@ -134,7 +101,6 @@ int main(int argc, char **argv)
 
     // Enqueue kernel execution
     cl::NDRange globalSize(input_canny.cols, input_canny.rows);
-    // cl::NDRange localSize(1, 1, n_possible_radius);
 
     queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, cl::NullRange);
 
