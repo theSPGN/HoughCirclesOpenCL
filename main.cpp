@@ -22,6 +22,25 @@ cv::Mat LoadInputImage(const std::string &image_path)
     return inputImage;
 }
 
+void ShowGrayscaleImage(const cv::Mat &img, const std::string &window_name)
+{
+    cv::Mat outputBGR;
+    cv::Mat output_normalized;
+    cv::Mat output_color;
+
+    const std::string win_name1 = window_name + "_normalized";
+    const std::string win_name2 = window_name + "_colormap";
+
+    cv::normalize(img, output_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::namedWindow(win_name1, cv::WINDOW_NORMAL);
+    cv::imshow(win_name1, output_normalized);
+
+    cv::applyColorMap(output_normalized, output_color, cv::COLORMAP_JET);
+    cv::namedWindow(win_name2, cv::WINDOW_NORMAL);
+    cv::imshow(win_name2, output_color);
+
+}
+
 int main(int argc, char **argv)
 {
     toml::table tbl;
@@ -61,7 +80,6 @@ int main(int argc, char **argv)
         throw;
     }
 
-    cl::Kernel kernel(program, "FindCircle");
 
     // Load input image
     cv::Mat input_img = LoadInputImage(image_path);
@@ -75,6 +93,7 @@ int main(int argc, char **argv)
 
     // Create input/output of opencl images
     cl::ImageFormat format(CL_R, CL_UNSIGNED_INT8);
+
     cl::Image2D inputImageCL(
         context,
         CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
@@ -85,7 +104,15 @@ int main(int argc, char **argv)
         input_canny.data
     );
 
-    cl::Image2D outputImageCL(
+    cl::Image2D output_find_circle_cl(
+        context,
+        CL_MEM_READ_WRITE,
+        format,
+        input_canny.cols,
+        input_canny.rows
+    );
+
+    cl::Image2D output_find_radius_cl(
         context,
         CL_MEM_WRITE_ONLY,
         format,
@@ -93,19 +120,30 @@ int main(int argc, char **argv)
         input_canny.rows
     );
 
+    /// Kernel -> function name in program (.cl file)
+    cl::Kernel kernel_find_circle(program, "FindCircle");
+    cl::Kernel kernel_find_radius(program, "FindRadius");
+
     // Set kernel arguments
-    kernel.setArg(0, inputImageCL);
-    kernel.setArg(1, hough_min_radius); // start from the smallest allowed radius
-    kernel.setArg(2, hough_max_radius); // specify size of local memory
-    kernel.setArg(3, outputImageCL);
+    kernel_find_circle.setArg(0, inputImageCL);
+    kernel_find_circle.setArg(1, hough_min_radius);
+    kernel_find_circle.setArg(2, hough_max_radius);
+    kernel_find_circle.setArg(3, output_find_circle_cl);
+
+    kernel_find_radius.setArg(0, output_find_circle_cl);
+    kernel_find_radius.setArg(1, output_find_radius_cl);
+
 
     // Enqueue kernel execution
     cl::NDRange globalSize(input_canny.cols, input_canny.rows);
 
-    queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, cl::NullRange);
+    queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange);
+    queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize, cl::NullRange);
 
     // Create output image
-    cv::Mat output_kernel(input_canny.rows, input_canny.cols, CV_8UC1);
+    cv::Mat cv_output_find_circle(input_canny.rows, input_canny.cols, CV_8UC1);
+    cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
+
 
     cl::size_t<3> origin;
     origin[0] = 0;
@@ -117,31 +155,16 @@ int main(int argc, char **argv)
     region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
+
     // Read back the result
-    queue.enqueueReadImage(
-        outputImageCL,
-        CL_TRUE,
-        origin,
-        region,
-        0,
-        0,
-        output_kernel.data
-    );
+    queue.enqueueReadImage( output_find_circle_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_circle.data );
+    queue.enqueueReadImage( output_find_radius_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_radius.data );
+
 
     // Show result image
-    cv::Mat outputBGR;
-    cv::Mat output_normalized;
-    cv::Mat output_color;
+    ShowGrayscaleImage(cv_output_find_circle, "FindCircle");
+    ShowGrayscaleImage(cv_output_find_radius, "FindRadius");
 
-
-    cv::normalize(output_kernel, output_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
-    cv::namedWindow("OutputNorm", cv::WINDOW_NORMAL);
-    cv::imshow("OutputNorm", output_normalized);
-
-    cv::applyColorMap(output_normalized, output_color, cv::COLORMAP_JET);
-
-    cv::namedWindow("OutputColor", cv::WINDOW_NORMAL);
-    cv::imshow("OutputColor", output_color);
     cv::waitKey(0);
 
     return 0;
