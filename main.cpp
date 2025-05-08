@@ -14,7 +14,7 @@
 
 cv::Mat LoadInputImage(const std::string &image_path)
 {
-    const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR_BGR);
+    const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR);
     if (inputImage.empty())
     {
         throw std::runtime_error("Failed to load input.png");
@@ -112,14 +112,6 @@ int main(int argc, char **argv)
         input_canny.rows
     );
 
-    cl::Image2D output_find_radius_cl(
-        context,
-        CL_MEM_WRITE_ONLY,
-        format,
-        input_canny.cols,
-        input_canny.rows
-    );
-
     /// Kernel -> function name in program (.cl file)
     cl::Kernel kernel_find_circle(program, "FindCircle");
     cl::Kernel kernel_find_radius(program, "FindRadius");
@@ -130,21 +122,14 @@ int main(int argc, char **argv)
     kernel_find_circle.setArg(2, hough_max_radius);
     kernel_find_circle.setArg(3, output_find_circle_cl);
 
-    kernel_find_radius.setArg(0, output_find_circle_cl);
-    kernel_find_radius.setArg(1, output_find_radius_cl);
-
-
     // Enqueue kernel execution
     cl::NDRange globalSize(input_canny.cols, input_canny.rows);
 
     queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange);
-    queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize, cl::NullRange);
 
     // Create output image
     cv::Mat cv_output_find_circle(input_canny.rows, input_canny.cols, CV_8UC1);
-    cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
-
-
+    
     cl::size_t<3> origin;
     origin[0] = 0;
     origin[1] = 0;
@@ -155,15 +140,50 @@ int main(int argc, char **argv)
     region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
-
     // Read back the result
     queue.enqueueReadImage( output_find_circle_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_circle.data );
-    queue.enqueueReadImage( output_find_radius_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_radius.data );
-
 
     // Show result image
     ShowGrayscaleImage(cv_output_find_circle, "FindCircle");
-    ShowGrayscaleImage(cv_output_find_radius, "FindRadius");
+
+    // Get thresholdValue of Hough space
+    double minVal, maxVal;
+    cv::minMaxLoc(cv_output_find_circle, &minVal, &maxVal);
+    const uint thresholdValue = 0.8 * maxVal;
+
+    // Create container for centroids
+    cl::Image2D output_find_radius_cl(
+        context, 
+        CL_MEM_WRITE_ONLY,
+        format,
+        input_canny.cols,
+        input_canny.rows
+    );
+
+    // Set kernel arguments
+    kernel_find_radius.setArg(0, output_find_circle_cl);
+    kernel_find_radius.setArg(1, thresholdValue);
+    kernel_find_radius.setArg(2, hough_max_radius);
+    kernel_find_radius.setArg(3, output_find_radius_cl);
+
+    // // Enqueue kernel execution
+    queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize, cl::NullRange);
+    
+    // // Create centroids image
+    cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
+    
+    // // Read back the result
+    queue.enqueueReadImage(output_find_radius_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_radius.data);
+
+    cv::imshow("Centroids", cv_output_find_radius);
+
+    for (int y = 0; y < cv_output_find_radius.rows; ++y)
+      for (int x = 0; x < cv_output_find_radius.cols; ++x)
+        if (cv_output_find_radius.at<uchar>(y, x) > 0)
+          cv::circle(input_img, cv::Point(x, y), hough_max_radius, cv::Scalar(0, 0, 255), 2);
+        
+    cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL);
+    cv::imshow("Detected Circles", input_img);
 
     cv::waitKey(0);
 

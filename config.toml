@@ -6,4 +6,4 @@ use_gpu = true
 [Hough_transform]
 image =  "data/coins.png"
 min_radius = 24
-max_radius = 27
+max_radius = 25
