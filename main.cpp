@@ -192,6 +192,6 @@ int main(int argc, char **argv)
     }
     if (!visualize_process) cv::imshow("Detected Circles", input_img);
     cv::waitKey(0);
-
+    cv::imwrite("HoughTransformOutputImage.png", input_img);
     return 0;
 }
