@@ -1,8 +1,8 @@
 #define CL_TARGET_OPENCL_VERSION 220
 #define __CL_ENABLE_EXCEPTIONS
 
-#include <math.h>
-
+#include <cmath>
+#include <numbers>
 #include <CL/cl.hpp>
 #include <filesystem>
 #include <iostream>
@@ -10,127 +10,131 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include <chrono>
 
 #include "KernelUtils.hpp"
 
-cv::Mat LoadInputImage(const std::string &image_path) {
-  const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR);
-  if (inputImage.empty()) {
-    throw std::runtime_error("Failed to load input.png");
-  }
-  return inputImage;
+cv::Mat LoadInputImage(const std::string &image_path)
+{
+    const cv::Mat inputImage = cv::imread(image_path, cv::IMREAD_COLOR);
+    if (inputImage.empty())
+    {
+        throw std::runtime_error("Failed to load input.png");
+    }
+    return inputImage;
 }
 
-void ShowGrayscaleImage(const cv::Mat &img, const std::string &window_name) {
-  cv::Mat outputBGR;
-  cv::Mat output_normalized;
-  cv::Mat output_color;
+void ShowGrayscaleImage(const cv::Mat &img, const std::string &window_name)
+{
+    cv::Mat outputBGR;
+    cv::Mat output_normalized;
+    cv::Mat output_color;
 
-  const std::string win_name1 = window_name + "_normalized";
-  const std::string win_name2 = window_name + "_colormap";
+    const std::string win_name1 = window_name + "_normalized";
+    const std::string win_name2 = window_name + "_colormap";
 
-  cv::normalize(img, output_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
-  cv::namedWindow(win_name1, cv::WINDOW_NORMAL);
-  cv::imshow(win_name1, output_normalized);
+    cv::normalize(img, output_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::namedWindow(win_name1, cv::WINDOW_NORMAL);
+    cv::imshow(win_name1, output_normalized);
 
-  cv::applyColorMap(output_normalized, output_color, cv::COLORMAP_JET);
-  cv::namedWindow(win_name2, cv::WINDOW_NORMAL);
-  cv::imshow(win_name2, output_color);
+    cv::applyColorMap(output_normalized, output_color, cv::COLORMAP_JET);
+    cv::namedWindow(win_name2, cv::WINDOW_NORMAL);
+    cv::imshow(win_name2, output_color);
 }
 
-int main(int argc, char **argv) {
-  toml::table tbl;
-  try {
-    tbl = toml::parse_file("config.toml");
-  } catch (const toml::parse_error &err) {
-    std::cout << "Error parsing file '" << *err.source().path << "':\n"
-              << err.description() << "\n (" << err.source().begin << ")\n";
-    return 1;
-  }
+int main(int argc, char **argv)
+{
+    toml::table tbl;
+    try
+    {
+        tbl = toml::parse_file("config.toml");
+    } catch (const toml::parse_error &err)
+    {
+        std::cout << "Error parsing file '" << *err.source().path << "':\n"
+                << err.description() << "\n (" << err.source().begin << ")\n";
+        return 1;
+    }
 
-  /// Get parameters
-  const auto use_gpu = ConfigGetValue<bool>(tbl, "OpenCL.use_gpu");
-  const auto platform_id = ConfigGetValue<size_t>(tbl, "OpenCL.platform_id");
-  const auto device_id = ConfigGetValue<size_t>(tbl, "OpenCL.device_id");
+    /// Get parameters
+    const auto use_gpu = ConfigGetValue<bool>(tbl, "OpenCL.use_gpu");
+    const auto platform_id = ConfigGetValue<size_t>(tbl, "OpenCL.platform_id");
+    const auto device_id = ConfigGetValue<size_t>(tbl, "OpenCL.device_id");
 
-  const auto image_path =
-      ConfigGetValue<std::string>(tbl, "Hough_transform.image");
-  const auto hough_min_radius =
-      ConfigGetValue<int>(tbl, "Hough_transform.min_radius");
-  const auto hough_max_radius =
-      ConfigGetValue<int>(tbl, "Hough_transform.max_radius");
-  const auto radius_threshold =
-      ConfigGetValue<int>(tbl, "Hough_transform.radius_threshold");
-  const auto radius_step =
-      ConfigGetValue<int>(tbl, "Hough_transform.radius_step");
-  const auto visualize_process =
-      ConfigGetValue<int>(tbl, "Hough_transform.visualize_process");
-  const auto hough_space_threshold =
-      ConfigGetValue<float>(tbl, "Hough_transform.hough_space_threshold");
-  const auto canny_threshold1 =
-      ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold1");
-  const auto canny_threshold2 =
-      ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold2");
+    const auto image_path =
+            ConfigGetValue<std::string>(tbl, "Hough_transform.image");
+    const auto hough_min_radius =
+            ConfigGetValue<int>(tbl, "Hough_transform.min_radius");
+    const auto hough_max_radius =
+            ConfigGetValue<int>(tbl, "Hough_transform.max_radius");
+    const auto radius_threshold =
+            ConfigGetValue<int>(tbl, "Hough_transform.radius_threshold");
+    const auto radius_step =
+            ConfigGetValue<int>(tbl, "Hough_transform.radius_step");
+    const auto visualize_process =
+            ConfigGetValue<int>(tbl, "Hough_transform.visualize_process");
+    const auto hough_space_threshold =
+            ConfigGetValue<float>(tbl, "Hough_transform.hough_space_threshold");
+    const auto canny_threshold1 =
+            ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold1");
+    const auto canny_threshold2 =
+            ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold2");
 
-  const auto device = GetDevice(platform_id, device_id, use_gpu);
+    const auto device = GetDevice(platform_id, device_id, use_gpu);
 
-  const cl::Context context(device);
-  const cl::CommandQueue queue(context, device);
+    const cl::Context context(device);
+    const cl::CommandQueue queue(context, device, CL_QUEUE_PROFILING_ENABLE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 
-  const std::string kernelSource = ReadKernelFile("cl/FindCircle.cl");
+    const std::string kernelSource = ReadKernelFile("cl/FindCircle.cl");
 
-  const cl::Program program(context, kernelSource);
-  try {
-    program.build({device});
-  } catch (cl::Error &buildErr) {
-    std::cout << "Error building: "
-              << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
-    throw;
-  }
+    const cl::Program program(context, kernelSource);
+    try
+    {
+        program.build({device});
+    } catch (cl::Error &buildErr)
+    {
+        std::cout << "Error building: "
+                << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
+        throw;
+    }
 
-  // Load input image
-  cv::Mat input_img = LoadInputImage(image_path);
-  cv::resize(input_img, input_img, cv::Size(), 0.02, 0.02);
-  // Convert to grayscale
-  cv::Mat grayscale_img;
-  cv::cvtColor(input_img, grayscale_img, cv::COLOR_BGR2GRAY);
-  grayscale_img.convertTo(grayscale_img, CV_8UC1);
+    // Load input image
+    cv::Mat input_img = LoadInputImage(image_path);
+    // cv::resize(input_img, input_img, cv::Size(), 0.02, 0.02);
+    // Convert to grayscale
+    cv::Mat grayscale_img;
+    cv::cvtColor(input_img, grayscale_img, cv::COLOR_BGR2GRAY);
+    grayscale_img.convertTo(grayscale_img, CV_8UC1);
 
-  // Extract edge
-  cv::Mat input_canny;
-  cv::Canny(grayscale_img, input_canny, canny_threshold1, canny_threshold2);
-  if (visualize_process) cv::imshow("Canny", input_canny);
-  cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
+    // Extract edge
+    cv::Mat input_canny;
+    cv::Canny(grayscale_img, input_canny, canny_threshold1, canny_threshold2);
 
-  // Create input/output of opencl images
-  cl::ImageFormat format(CL_R, CL_UNSIGNED_INT8);
+    if (visualize_process)
+        cv::imshow("Canny", input_canny);
 
-  cl::Image2D inputImageCL(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                           format, input_canny.cols, input_canny.rows, 0,
-                           input_canny.data);
+    cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
 
-  cl::Image2D output_find_circle_cl(context, CL_MEM_READ_WRITE, format,
-                                    input_canny.cols, input_canny.rows);
+    // Create input/output of opencl images
+    cl::ImageFormat format(CL_R, CL_UNSIGNED_INT8);
 
-  /// Kernel -> function name in program (.cl file)
-  cl::Kernel kernel_find_circle(program, "FindCircle");
-  cl::Kernel kernel_find_radius(program, "FindRadius");
-  for (auto i = hough_max_radius; i >= hough_min_radius; i -= radius_step) {
-    // Set kernel arguments
-    int radius = i;
-    kernel_find_circle.setArg(0, inputImageCL);
-    kernel_find_circle.setArg(1, radius - radius_threshold);
-    kernel_find_circle.setArg(2, radius + radius_threshold);
-    kernel_find_circle.setArg(3, output_find_circle_cl);
+    cl::Image2D inputImageCL(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                             format, input_canny.cols, input_canny.rows, 0,
+                             input_canny.data);
+
+    // Create output image
+    cl::Image2D output_find_circle_cl(context, CL_MEM_READ_WRITE, format, input_canny.cols, input_canny.rows);
+    cv::Mat cv_output_find_circle(input_canny.rows, input_canny.cols, CV_8UC1);
+
+    // Create container for centroids
+    cl::Image2D output_find_radius_cl(context, CL_MEM_WRITE_ONLY, format, input_canny.cols, input_canny.rows);
+    cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
+
+    /// Kernel -> function name in program (.cl file)
+    cl::Kernel kernel_find_circle(program, "FindCircle");
+    cl::Kernel kernel_find_radius(program, "FindRadius");
 
     // Enqueue kernel execution
     cl::NDRange globalSize(input_canny.cols, input_canny.rows);
-
-    queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize,
-                               cl::NullRange);
-
-    // Create output image
-    cv::Mat cv_output_find_circle(input_canny.rows, input_canny.cols, CV_8UC1);
 
     cl::size_t<3> origin;
     origin[0] = 0;
@@ -142,60 +146,118 @@ int main(int argc, char **argv) {
     region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
-    // Read back the result
-    queue.enqueueReadImage(output_find_circle_cl, CL_TRUE, origin, region, 0, 0,
-                           cv_output_find_circle.data);
+    cl::Event event;
 
-    // Show result image
-    if (visualize_process)
-      ShowGrayscaleImage(cv_output_find_circle, "FindCircle");
+    for (auto radius = hough_max_radius; radius >= hough_min_radius; radius -= radius_step)
+    {
+        const auto start = std::chrono::high_resolution_clock::now();
 
-    // Get thresholdValue of Hough space
-    double minVal, maxVal;
-    cv::minMaxLoc(cv_output_find_circle, &minVal, &maxVal);
-    const uint thresholdValue = radius * M_PI * 2 * hough_space_threshold;
+        cl::Buffer cl_mask_x, cl_mask_y;
+        int length = 0;
+        {
+            std::vector<int> circle_x_pos;
+            std::vector<int> circle_y_pos;
+            int min_distance = radius - radius_threshold;
+            int max_distance = radius + radius_threshold;
 
-    // Create container for centroids
-    cl::Image2D output_find_radius_cl(context, CL_MEM_WRITE_ONLY, format,
-                                      input_canny.cols, input_canny.rows);
+            for (int y = -hough_max_radius; y <= hough_max_radius; ++y)
+            {
+                for (int x = -hough_max_radius; x <= hough_max_radius; ++x)
+                {
+                    const int distance = y*y + x*x;
+                    if (distance < min_distance || distance > max_distance)
+                        continue;
+                    circle_x_pos.push_back(x);
+                    circle_y_pos.push_back(y);
+                }
+            }
 
-    // Set kernel arguments
-    kernel_find_radius.setArg(0, output_find_circle_cl);
-    kernel_find_radius.setArg(1, thresholdValue);
-    kernel_find_radius.setArg(2, radius + radius_threshold);
-    kernel_find_radius.setArg(3, output_find_radius_cl);
-
-    // // Enqueue kernel execution
-    queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize,
-                               cl::NullRange);
-
-    // // Create centroids image
-    cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
-
-    // // Read back the result
-    queue.enqueueReadImage(output_find_radius_cl, CL_TRUE, origin, region, 0, 0,
-                           cv_output_find_radius.data);
-
-    if (visualize_process) cv::imshow("Centroids", cv_output_find_radius);
-
-    for (int y = 0; y < cv_output_find_radius.rows; ++y)
-      for (int x = 0; x < cv_output_find_radius.cols; ++x)
-        if (cv_output_find_radius.at<uchar>(y, x) > 0) {
-          int r = rand() % 256;
-          int g = rand() % 256;
-          int b = rand() % 256;
-          cv::circle(input_img, cv::Point(x, y), radius, cv::Scalar(r, g, b),
-                     1);
+            cl_mask_x = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                sizeof(int) * circle_x_pos.size(), circle_x_pos.data());
+            cl_mask_y = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                sizeof(int) * circle_y_pos.size(), circle_y_pos.data());
+            length = circle_x_pos.size();
         }
 
-    if (visualize_process) {
-      cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL);
-      cv::imshow("Detected Circles", input_img);
-      cv::waitKey(1);
+        // Set kernel arguments
+        kernel_find_circle.setArg(0, inputImageCL);
+        kernel_find_circle.setArg(1, cl_mask_x);
+        kernel_find_circle.setArg(2, cl_mask_y);
+        kernel_find_circle.setArg(3, length);
+        kernel_find_circle.setArg(4, output_find_circle_cl);
+
+
+        // Find circle Kernel
+        queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange, 0, &event);
+        (void)event.wait();
+
+        cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+        cl_ulong end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+        double duration_ms = (end_time - start_time) * 1e-6;
+        std::cout << "Find circle Kernel execution time: " << duration_ms << " ms" << std::endl;
+
+
+        // Show result image
+        if (visualize_process)
+        {
+            queue.enqueueReadImage(output_find_circle_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_circle.data);
+            ShowGrayscaleImage(cv_output_find_circle, "FindCircle");
+        }
+
+        const uint thresholdValue = radius * std::numbers::pi * 2 * hough_space_threshold;
+
+        // Set kernel arguments
+        kernel_find_radius.setArg(0, output_find_circle_cl);
+        kernel_find_radius.setArg(1, thresholdValue);
+        kernel_find_radius.setArg(2, radius + radius_threshold);
+        kernel_find_radius.setArg(3, output_find_radius_cl);
+
+        // // Find radius kernel
+        queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize, cl::NullRange, 0, &event);
+        event.wait();
+        start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+        end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+        duration_ms = (end_time - start_time) * 1e-6;
+        std::cout << "Find radius kernel execution time: " << duration_ms << " ms" << std::endl;
+
+        queue.enqueueReadImage(output_find_radius_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_radius.data);
+
+        if (visualize_process)
+            cv::imshow("Centroids", cv_output_find_radius);
+
+        for (int y = 0; y < cv_output_find_radius.rows; ++y)
+        {
+            for (int x = 0; x < cv_output_find_radius.cols; ++x)
+            {
+                if (cv_output_find_radius.at<uchar>(y, x) > 0)
+                {
+                    int r = rand() % 256;
+                    int g = rand() % 256;
+                    int b = rand() % 256;
+                    cv::circle(input_img, cv::Point(x, y), radius, cv::Scalar(r, g, b), 1);
+                }
+            }
+        }
+
+        if (visualize_process)
+        {
+            cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL);
+            cv::imshow("Detected Circles", input_img);
+            cv::waitKey(1);
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        std::cout << "One iteration time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
     }
-  }
-  if (!visualize_process) cv::imshow("Detected Circles", input_img);
-  cv::waitKey(0);
-  cv::imwrite("HoughTransformOutputImage.png", input_img);
-  return 0;
+    std::cout << "End of run" << std::endl;
+
+    if (!visualize_process)
+    {
+        cv::imshow("Detected Circles", input_img);
+    }
+
+    cv::waitKey(0);
+    cv::imwrite("HoughTransformOutputImage.png", input_img);
+
+    return 0;
 }
