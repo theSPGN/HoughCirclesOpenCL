@@ -160,12 +160,12 @@ int main(int argc, char **argv)
             int min_distance = radius - radius_threshold;
             int max_distance = radius + radius_threshold;
 
-            for (int y = -hough_max_radius; y <= hough_max_radius; ++y)
+            for (int y = -max_distance; y <= max_distance; ++y)
             {
-                for (int x = -hough_max_radius; x <= hough_max_radius; ++x)
+                for (int x = -max_distance; x <= max_distance; ++x)
                 {
                     const int distance = y*y + x*x;
-                    if (distance < min_distance || distance > max_distance)
+                    if ((distance < min_distance * min_distance) || (distance > max_distance * max_distance))
                         continue;
                     circle_x_pos.push_back(x);
                     circle_y_pos.push_back(y);
@@ -231,9 +231,12 @@ int main(int argc, char **argv)
             {
                 if (cv_output_find_radius.at<uchar>(y, x) > 0)
                 {
-                    int r = rand() % 256;
-                    int g = rand() % 256;
-                    int b = rand() % 256;
+                    // int r = rand() % 256;
+                    // int g = rand() % 256;
+                    // int b = rand() % 256;
+                    int r = 255;
+                    int g = 0;
+                    int b = 0;
                     cv::circle(input_img, cv::Point(x, y), radius, cv::Scalar(r, g, b), 1);
                 }
             }
