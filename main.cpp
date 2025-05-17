@@ -146,12 +146,16 @@ int main(int argc, char **argv)
     region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
+    kernel_find_circle.setArg(0, inputImageCL);
+    kernel_find_circle.setArg(4, output_find_circle_cl);
+
     cl::Event event;
 
     for (auto radius = hough_max_radius; radius >= hough_min_radius; radius -= radius_step)
     {
         const auto start = std::chrono::high_resolution_clock::now();
 
+        const auto start3 = std::chrono::high_resolution_clock::now();
         cl::Buffer cl_mask_x, cl_mask_y;
         int length = 0;
         {
@@ -178,17 +182,21 @@ int main(int argc, char **argv)
                 sizeof(int) * circle_y_pos.size(), circle_y_pos.data());
             length = circle_x_pos.size();
         }
+        const auto end3 = std::chrono::high_resolution_clock::now();
+        std::cout << "Generating idx time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end3 - start3).count() << std::endl;
+        std::cout << "Length of circle idx: " << length << std::endl;
 
         // Set kernel arguments
-        kernel_find_circle.setArg(0, inputImageCL);
+        static constexpr int size_3d_thread_find_circle = 64;
         kernel_find_circle.setArg(1, cl_mask_x);
         kernel_find_circle.setArg(2, cl_mask_y);
         kernel_find_circle.setArg(3, length);
-        kernel_find_circle.setArg(4, output_find_circle_cl);
 
 
         // Find circle Kernel
-        queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange, 0, &event);
+        cl::NDRange globalSizeFindCircle(input_canny.cols, input_canny.rows, size_3d_thread_find_circle);
+        cl::NDRange localSizeFindCircle(1, 1, size_3d_thread_find_circle);
+        queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSizeFindCircle, localSizeFindCircle, 0, &event);
         (void)event.wait();
 
         cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
