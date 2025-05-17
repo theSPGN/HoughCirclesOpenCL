@@ -8,6 +8,8 @@
 #include <iostream>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/core/ocl.hpp>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -96,10 +98,14 @@ int main(int argc, char **argv)
                 << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device) << "\n";
         throw;
     }
+    cv::ocl::setUseOpenCL(true);
+    std::cout << "OpenCV OpenCL is enabled." << std::endl;
+    cv::ocl::Device dev = cv::ocl::Device::getDefault();
+    std::cout << "OpenCV OpenCL device: " << dev.name() << std::endl;
 
     // Load input image
     cv::Mat input_img = LoadInputImage(image_path);
-    // cv::resize(input_img, input_img, cv::Size(), 0.02, 0.02);
+    cv::resize(input_img, input_img, cv::Size(), 0.1, 0.1);
     // Convert to grayscale
     cv::Mat grayscale_img;
     cv::cvtColor(input_img, grayscale_img, cv::COLOR_BGR2GRAY);
@@ -107,10 +113,16 @@ int main(int argc, char **argv)
 
     // Extract edge
     cv::Mat input_canny;
-    cv::Canny(grayscale_img, input_canny, canny_threshold1, canny_threshold2);
+    cv::Mat blurred;
+    cv::GaussianBlur(grayscale_img, blurred, cv::Size(5,5), 1.4);
+    cv::Canny(blurred, input_canny, canny_threshold1, canny_threshold2);
 
     if (visualize_process)
+    {
         cv::imshow("Canny", input_canny);
+        auto sum = cv::sum(input_canny);
+        std::cout << sum << std::endl;
+    }
 
     cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
 
@@ -130,7 +142,7 @@ int main(int argc, char **argv)
     cv::Mat cv_output_find_radius(input_canny.rows, input_canny.cols, CV_8UC1);
 
     /// Kernel -> function name in program (.cl file)
-    cl::Kernel kernel_find_circle(program, "FindCircle");
+    cl::Kernel kernel_find_circle(program, "FindCircle2");
     cl::Kernel kernel_find_radius(program, "FindRadius");
 
     // Enqueue kernel execution
@@ -146,57 +158,25 @@ int main(int argc, char **argv)
     region[1] = static_cast<size_t>(input_canny.rows);
     region[2] = 1;
 
-    kernel_find_circle.setArg(0, inputImageCL);
-    kernel_find_circle.setArg(4, output_find_circle_cl);
 
     cl::Event event;
+
+    const size_t buffer_bytes = input_canny.cols * input_canny.rows * sizeof(cl_uint);
+    cl::Buffer cl_accumulator_buffer(context, CL_MEM_READ_WRITE, buffer_bytes);
+
 
     for (auto radius = hough_max_radius; radius >= hough_min_radius; radius -= radius_step)
     {
         const auto start = std::chrono::high_resolution_clock::now();
 
-        const auto start3 = std::chrono::high_resolution_clock::now();
-        cl::Buffer cl_mask_x, cl_mask_y;
-        int length = 0;
-        {
-            std::vector<int> circle_x_pos;
-            std::vector<int> circle_y_pos;
-            int min_distance = radius - radius_threshold;
-            int max_distance = radius + radius_threshold;
-
-            for (int y = -max_distance; y <= max_distance; ++y)
-            {
-                for (int x = -max_distance; x <= max_distance; ++x)
-                {
-                    const int distance = y*y + x*x;
-                    if ((distance < min_distance * min_distance) || (distance > max_distance * max_distance))
-                        continue;
-                    circle_x_pos.push_back(x);
-                    circle_y_pos.push_back(y);
-                }
-            }
-
-            cl_mask_x = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                sizeof(int) * circle_x_pos.size(), circle_x_pos.data());
-            cl_mask_y = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                sizeof(int) * circle_y_pos.size(), circle_y_pos.data());
-            length = circle_x_pos.size();
-        }
-        const auto end3 = std::chrono::high_resolution_clock::now();
-        std::cout << "Generating idx time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end3 - start3).count() << std::endl;
-        std::cout << "Length of circle idx: " << length << std::endl;
-
-        // Set kernel arguments
-        static constexpr int size_3d_thread_find_circle = 64;
-        kernel_find_circle.setArg(1, cl_mask_x);
-        kernel_find_circle.setArg(2, cl_mask_y);
-        kernel_find_circle.setArg(3, length);
-
+        kernel_find_circle.setArg(0, inputImageCL);
+        kernel_find_circle.setArg(1, radius);
+        kernel_find_circle.setArg(2, radius_threshold);
+        kernel_find_circle.setArg(3, cl_accumulator_buffer);
 
         // Find circle Kernel
-        cl::NDRange globalSizeFindCircle(input_canny.cols, input_canny.rows, size_3d_thread_find_circle);
-        cl::NDRange localSizeFindCircle(1, 1, size_3d_thread_find_circle);
-        queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSizeFindCircle, localSizeFindCircle, 0, &event);
+        queue.enqueueFillBuffer(cl_accumulator_buffer, 0, 0, buffer_bytes);
+        queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange, 0, &event);
         (void)event.wait();
 
         cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
@@ -204,18 +184,21 @@ int main(int argc, char **argv)
         double duration_ms = (end_time - start_time) * 1e-6;
         std::cout << "Find circle Kernel execution time: " << duration_ms << " ms" << std::endl;
 
-
         // Show result image
         if (visualize_process)
         {
-            queue.enqueueReadImage(output_find_circle_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_circle.data);
-            ShowGrayscaleImage(cv_output_find_circle, "FindCircle");
+            std::vector<uint8_t> hostBuffer(input_canny.rows * input_canny.cols); // uchar = unsigned char = 8-bit
+
+            queue.enqueueReadBuffer(cl_accumulator_buffer, CL_TRUE, 0, hostBuffer.size(), hostBuffer.data());
+            cv::Mat tmp(input_canny.rows, input_canny.cols, CV_8UC1, hostBuffer.data());
+            cv::Mat found_circles = tmp.clone();
+            ShowGrayscaleImage(found_circles, "FindCircle");
         }
 
         const uint thresholdValue = radius * std::numbers::pi * 2 * hough_space_threshold;
 
         // Set kernel arguments
-        kernel_find_radius.setArg(0, output_find_circle_cl);
+        kernel_find_radius.setArg(0, cl_accumulator_buffer);
         kernel_find_radius.setArg(1, thresholdValue);
         kernel_find_radius.setArg(2, radius + radius_threshold);
         kernel_find_radius.setArg(3, output_find_radius_cl);
@@ -239,9 +222,7 @@ int main(int argc, char **argv)
             {
                 if (cv_output_find_radius.at<uchar>(y, x) > 0)
                 {
-                    // int r = rand() % 256;
-                    // int g = rand() % 256;
-                    // int b = rand() % 256;
+                    std::cout << "Found circle at: x=" << x << ", y=" << y << std::endl;
                     int r = 255;
                     int g = 0;
                     int b = 0;
@@ -252,6 +233,8 @@ int main(int argc, char **argv)
 
         if (visualize_process)
         {
+            // cv::Mat resize_output;
+            // cv::resize(input_img, resize_output, cv::Size(1920, 1080), cv::INTER_LINEAR);
             cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL);
             cv::imshow("Detected Circles", input_img);
             cv::waitKey(1);
@@ -267,8 +250,8 @@ int main(int argc, char **argv)
         cv::imshow("Detected Circles", input_img);
     }
 
-    cv::waitKey(0);
     cv::imwrite("HoughTransformOutputImage.png", input_img);
+    cv::waitKey(0);
 
     return 0;
 }
