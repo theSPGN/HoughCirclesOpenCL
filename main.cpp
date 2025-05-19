@@ -165,6 +165,15 @@ int main(int argc, char **argv)
     cl::Buffer cl_accumulator_buffer(context, CL_MEM_READ_WRITE, buffer_bytes);
 
 
+    auto OpenCLProfile = [](const cl::Event &event, std::string_view kernel_name){
+        (void)event.wait();
+        const cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+        const cl_ulong end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+        const double duration_ms = (end_time - start_time) * 1e-6;
+        std::cout << kernel_name << ", execution time: " << duration_ms << " ms" << std::endl;
+    };
+
+
     for (auto radius = hough_max_radius; radius >= hough_min_radius; radius -= radius_step)
     {
         const auto start = std::chrono::high_resolution_clock::now();
@@ -177,12 +186,8 @@ int main(int argc, char **argv)
         // Find circle Kernel
         queue.enqueueFillBuffer(cl_accumulator_buffer, 0, 0, buffer_bytes);
         queue.enqueueNDRangeKernel(kernel_find_circle, cl::NullRange, globalSize, cl::NullRange, 0, &event);
-        (void)event.wait();
+        OpenCLProfile(event, "FindCircle");
 
-        cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
-        cl_ulong end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
-        double duration_ms = (end_time - start_time) * 1e-6;
-        std::cout << "Find circle Kernel execution time: " << duration_ms << " ms" << std::endl;
 
         // Show result image
         if (visualize_process)
@@ -205,16 +210,13 @@ int main(int argc, char **argv)
 
         // // Find radius kernel
         queue.enqueueNDRangeKernel(kernel_find_radius, cl::NullRange, globalSize, cl::NullRange, 0, &event);
-        event.wait();
-        start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
-        end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
-        duration_ms = (end_time - start_time) * 1e-6;
-        std::cout << "Find radius kernel execution time: " << duration_ms << " ms" << std::endl;
+        OpenCLProfile(event, "FindRadius");
 
         queue.enqueueReadImage(output_find_radius_cl, CL_TRUE, origin, region, 0, 0, cv_output_find_radius.data);
 
         if (visualize_process)
             cv::imshow("Centroids", cv_output_find_radius);
+
 
         for (int y = 0; y < cv_output_find_radius.rows; ++y)
         {
@@ -233,8 +235,6 @@ int main(int argc, char **argv)
 
         if (visualize_process)
         {
-            // cv::Mat resize_output;
-            // cv::resize(input_img, resize_output, cv::Size(1920, 1080), cv::INTER_LINEAR);
             cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL);
             cv::imshow("Detected Circles", input_img);
             cv::waitKey(1);
@@ -243,6 +243,7 @@ int main(int argc, char **argv)
         const auto end = std::chrono::high_resolution_clock::now();
         std::cout << "One iteration time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
     }
+
     std::cout << "End of run" << std::endl;
 
     if (!visualize_process)
