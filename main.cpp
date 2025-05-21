@@ -83,6 +83,8 @@ int main(int argc, char **argv)
             ConfigGetValue<int>(tbl, "Hough_transform.radius_threshold");
     const auto radius_step =
             ConfigGetValue<int>(tbl, "Hough_transform.radius_step");
+    const auto angle_step =
+            ConfigGetValue<int>(tbl, "Hough_transform.angle_step");
     const auto visualize_process =
             ConfigGetValue<int>(tbl, "Hough_transform.visualize_process");
     const auto hough_space_threshold =
@@ -188,7 +190,8 @@ int main(int argc, char **argv)
         kernel_find_circle.setArg(0, inputImageCL);
         kernel_find_circle.setArg(1, radius);
         kernel_find_circle.setArg(2, radius_threshold);
-        kernel_find_circle.setArg(3, cl_accumulator_buffer);
+        kernel_find_circle.setArg(3, angle_step);
+        kernel_find_circle.setArg(4, cl_accumulator_buffer);
 
         // Find circle Kernel
         queue.enqueueFillBuffer(cl_accumulator_buffer, 0, 0, buffer_bytes);

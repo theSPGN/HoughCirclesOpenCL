@@ -50,6 +50,7 @@ __kernel void FindCircle(read_only  image2d_t input_image,
 __kernel void FindCircle2(read_only  image2d_t input_image,
                               const  int base_radius,
                               const  int tolerance,
+                              const  int angle_step,
                            __global  uint* accumulator)
 {
     const int2 image_size = (int2)(get_global_size(0), get_global_size(1));
@@ -62,7 +63,7 @@ __kernel void FindCircle2(read_only  image2d_t input_image,
         return;
 
     #pragma unroll
-    for (int angle = 0; angle < 360; angle += 2)
+    for (int angle = 0; angle < 360; angle += angle_step)
     {
         const float theta = radians((float)angle);
         const float cos_value = cos(theta);

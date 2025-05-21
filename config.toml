@@ -21,5 +21,6 @@ min_radius = 1200
 max_radius = 2500
 radius_threshold = 6
 radius_step = 2
+angle_step = 2
 visualize_process = 0
 hough_space_threshold = 0.95
