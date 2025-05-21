@@ -129,7 +129,7 @@ int main(int argc, char **argv)
     {
         cv::namedWindow("Canny", cv::WINDOW_NORMAL);
         cv::imshow("Canny", input_canny);
-        cv::waitKey(0);
+        cv::waitKey(1);
     }
 
     cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
