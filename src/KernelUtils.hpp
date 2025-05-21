@@ -30,5 +30,7 @@ T ConfigGetValue(const toml::table &tbl, const std::string_view key)
     return opt_value.value();
 }
 
+[[nodiscard]]
+std::string_view GetOpenCLErrorString(cl_int error_code);
 
 #endif //KERNELUTILS_HPP
