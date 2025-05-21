@@ -61,6 +61,7 @@ __kernel void FindCircle2(read_only  image2d_t input_image,
     if (center_pixel.x == 0)
         return;
 
+    #pragma unroll
     for (int angle = 0; angle < 360; angle += 2)
     {
         const float theta = radians((float)angle);
@@ -81,26 +82,6 @@ __kernel void FindCircle2(read_only  image2d_t input_image,
             }
         }
     }
-
-    /* TODO: add loop over radius
-    for (int r_idx = 0; r_idx < num_radii; ++r_idx)
-    {
-        int r = radii[r_idx];
-
-        for (int angle = 0; angle < 360; angle += 5)
-        {
-            float theta = radians((float)angle);
-            int a = (int)(coord.x - r * cos(theta));
-            int b = (int)(coord.y - r * sin(theta));
-
-            if (a >= 0 && a < image_size.x && b >= 0 && b < image_size.y)
-            {
-                int idx = (r_idx * width * height) + (b * width + a);
-                atomic_inc(&accumulator[idx]);
-            }
-        }
-    }
-    */
 }
 
 
@@ -138,7 +119,7 @@ __kernel void FindRadius(__global uint* input_image,
                     break;
                 }
             }
-            if (has_larger_neighbor) break; 
+            if (has_larger_neighbor) break;
         }
         if (!has_larger_neighbor) {
             output = (uint4)(255);

@@ -23,6 +23,12 @@ target_link_libraries(Hough_transform PUBLIC
         DataFilesCopy
 )
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    if (MSVC)
+        target_compile_options(Hough_transform PRIVATE /Ox)
+    endif()
+endif()
+
 # Copy config file
 set(CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/config.toml")
 add_custom_target("copy_config"

@@ -3,13 +3,23 @@ platform_id = 0
 device_id = 0
 use_gpu = true
 
-[Hough_transform]
+[Image]
 image =  "data/245.jpg"
-min_radius = 80
-max_radius = 1200
-radius_threshold = 8
-radius_step = 1
-visualize_process = 1
-hough_space_threshold = 0.9
-canny_threshold1 = 8
-canny_threshold2 = 80
+resize_ratio = 1 # in range 0-1
+
+[Image.Gaussian]
+blur_size = 5
+sigma = 0.9
+
+[Image.Canny]
+threshold1 = 25
+threshold2 = 100
+
+
+[Hough_transform]
+min_radius = 1200
+max_radius = 2500
+radius_threshold = 6
+radius_step = 2
+visualize_process = 0
+hough_space_threshold = 0.95

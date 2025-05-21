@@ -63,7 +63,18 @@ int main(int argc, char **argv)
     const auto device_id = ConfigGetValue<size_t>(tbl, "OpenCL.device_id");
 
     const auto image_path =
-            ConfigGetValue<std::string>(tbl, "Hough_transform.image");
+            ConfigGetValue<std::string>(tbl, "Image.image");
+    const auto resize_ratio=
+            ConfigGetValue<float>(tbl, "Image.resize_ratio");
+    const auto gaussian_blur_size=
+            ConfigGetValue<int>(tbl, "Image.Gaussian.blur_size");
+    const auto gaussian_sigma =
+            ConfigGetValue<float>(tbl, "Image.Gaussian.sigma");
+    const auto canny_threshold1 =
+            ConfigGetValue<float>(tbl, "Image.Canny.threshold1");
+    const auto canny_threshold2 =
+            ConfigGetValue<float>(tbl, "Image.Canny.threshold2");
+
     const auto hough_min_radius =
             ConfigGetValue<int>(tbl, "Hough_transform.min_radius");
     const auto hough_max_radius =
@@ -76,10 +87,6 @@ int main(int argc, char **argv)
             ConfigGetValue<int>(tbl, "Hough_transform.visualize_process");
     const auto hough_space_threshold =
             ConfigGetValue<float>(tbl, "Hough_transform.hough_space_threshold");
-    const auto canny_threshold1 =
-            ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold1");
-    const auto canny_threshold2 =
-            ConfigGetValue<float>(tbl, "Hough_transform.canny_threshold2");
 
     const auto device = GetDevice(platform_id, device_id, use_gpu);
 
@@ -99,14 +106,13 @@ int main(int argc, char **argv)
         throw;
     }
     cv::ocl::setUseOpenCL(true);
-    std::cout << "OpenCV OpenCL is enabled." << std::endl;
-    cv::ocl::Device dev = cv::ocl::Device::getDefault();
-    std::cout << "OpenCV OpenCL device: " << dev.name() << std::endl;
 
     // Load input image
     cv::Mat input_img = LoadInputImage(image_path);
-    cv::resize(input_img, input_img, cv::Size(), 0.1, 0.1);
-    // Convert to grayscale
+    cv::resize(input_img, input_img, cv::Size(), resize_ratio, resize_ratio);
+    // std::cout << "Resized input image by factor: " << resize_ratio << "\n";
+
+     // Convert to grayscale
     cv::Mat grayscale_img;
     cv::cvtColor(input_img, grayscale_img, cv::COLOR_BGR2GRAY);
     grayscale_img.convertTo(grayscale_img, CV_8UC1);
@@ -114,14 +120,14 @@ int main(int argc, char **argv)
     // Extract edge
     cv::Mat input_canny;
     cv::Mat blurred;
-    cv::GaussianBlur(grayscale_img, blurred, cv::Size(5,5), 1.4);
+    cv::GaussianBlur(grayscale_img, blurred, cv::Size(gaussian_blur_size,gaussian_blur_size), gaussian_sigma);
     cv::Canny(blurred, input_canny, canny_threshold1, canny_threshold2);
 
     if (visualize_process)
     {
+        cv::namedWindow("Canny", cv::WINDOW_NORMAL);
         cv::imshow("Canny", input_canny);
-        auto sum = cv::sum(input_canny);
-        std::cout << sum << std::endl;
+        cv::waitKey(0);
     }
 
     cv::Mat circle_accumulator(input_img.rows, input_img.cols, CV_8UC1);
@@ -170,9 +176,10 @@ int main(int argc, char **argv)
         const cl_ulong start_time = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
         const cl_ulong end_time = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
         const double duration_ms = (end_time - start_time) * 1e-6;
-        std::cout << kernel_name << ", execution time: " << duration_ms << " ms" << std::endl;
+        std::cout << kernel_name << ", execution time: " << duration_ms << " ms\n";
     };
 
+    const auto start_total = std::chrono::high_resolution_clock::now();
 
     for (auto radius = hough_max_radius; radius >= hough_min_radius; radius -= radius_step)
     {
@@ -224,7 +231,6 @@ int main(int argc, char **argv)
             {
                 if (cv_output_find_radius.at<uchar>(y, x) > 0)
                 {
-                    std::cout << "Found circle at: x=" << x << ", y=" << y << std::endl;
                     int r = 255;
                     int g = 0;
                     int b = 0;
@@ -241,15 +247,15 @@ int main(int argc, char **argv)
         }
 
         const auto end = std::chrono::high_resolution_clock::now();
-        std::cout << "One iteration time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
+        std::cout << "One iteration time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms.\n";
     }
+    const auto end_total = std::chrono::high_resolution_clock::now();
+    std::cout << "All iteration time: " << std::chrono::duration_cast<std::chrono::seconds>(end_total - start_total).count() << " s." << std::endl;
 
     std::cout << "End of run" << std::endl;
 
-    if (!visualize_process)
-    {
-        cv::imshow("Detected Circles", input_img);
-    }
+    cv::namedWindow("Detected Circles", cv::WINDOW_NORMAL | cv::WINDOW_FULLSCREEN);
+    cv::imshow("Detected Circles", input_img);
 
     cv::imwrite("HoughTransformOutputImage.png", input_img);
     cv::waitKey(0);
